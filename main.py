@@ -43,8 +43,9 @@ def save_article(topic, content):
     article_id = c.lastrowid 
     conn.commit()
     conn.close()
+    return article_id 
 
-
+@st.cache_data(ttl=1)
 def get_articles():
     conn = sqlite3.connect('articles.db')
     c = conn.cursor()
@@ -74,19 +75,19 @@ class GraphState(TypedDict):
     search_data: list  # Changed from search_results
     outline_data: str  # Changed from outline
     article_data: str  # Changed from article
-
 def search_process(state: Dict) -> Dict:
     """Search node that returns results."""
     query = state["input"]
-    results = search_tool.invoke({"query": query})
+    results = search_tool.invoke(query)  # Remove the dictionary wrapper
     new_state = state.copy()
     new_state["search_data"] = results
     return new_state
 
 def outline_process(state: Dict) -> Dict:
     """Outline node that processes search results."""
+    # Modify how we handle the search results
     results_str = "\n\n".join(
-        [f"Source {i+1}:\nURL: {res['url']}\nContent: {res['content'][:500]}..." 
+        [f"Source {i+1}:\n{res}" 
          for i, res in enumerate(state["search_data"])]
     )
     
@@ -181,17 +182,23 @@ def main():
         if article[0] not in st.session_state.deleted_articles
     ]
     
-    for article in previous_articles:
-        col1, col2 = st.sidebar.columns([3, 1])
-        with col1:
-            if st.sidebar.button(f"{article[1]}", key=f"article_{article[0]}"):
-                st.session_state.current_article_id = article[0]
-                st.session_state.show_new_article = False
-                st.session_state.new_article_generated = False
-        with col2:
-            if st.sidebar.button("🗑️", key=f"delete_{article[0]}"):
-                if handle_delete(article[0]):
+    # Display articles in the sidebar
+    if not previous_articles:
+        st.sidebar.write("No articles yet")
+    else:
+        for article in previous_articles:
+            col1, col2 = st.sidebar.columns([3, 1])
+            with col1:
+                if st.sidebar.button(f"{article[1]}", key=f"article_{article[0]}"):
+                    st.session_state.current_article_id = article[0]
+                    st.session_state.show_new_article = False
+                    st.session_state.new_article_generated = False
                     st.rerun()
+            with col2:
+                if st.sidebar.button("🗑️", key=f"delete_{article[0]}"):
+                    if handle_delete(article[0]):
+                        st.cache_data.clear()
+                        st.rerun()
     
     # Main content area
     st.title("AI Writer Agent")
@@ -213,31 +220,28 @@ def main():
         st.markdown("Generate comprehensive articles with AI-powered research")
         query = st.text_input("Enter your article topic:", placeholder="Enter your article topic here")
         generate_button = st.button("Generate Article")
-        
         if generate_button and query:
             with st.spinner('Starting research and writing process...'):
-              
-                
                 initial_state = {"input": query}
-                
-                
-                
                 result = app.invoke(initial_state)
                 
                 # Get the generated content
                 article_content = result.get("article_data", "No article generated")
                 
-                # Save to database
+                # Save to database and get the article id
                 article_id = save_article(
                     topic=query,
                     content=article_content
                 )
                 
-                # Store the generated content in session state
+                # Update session state
                 st.session_state.generated_content = (query, article_content)
                 st.session_state.new_article_generated = True
                 st.session_state.current_article_id = article_id
                 st.session_state.show_new_article = False
+                
+                # Clear the cache for get_articles
+                st.cache_data.clear()
                 
                 # Force a rerun to update the UI
                 st.rerun()
