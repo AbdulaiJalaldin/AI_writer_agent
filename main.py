@@ -13,7 +13,8 @@ import time
 
 api_key = os.getenv("TAVILY_API_KEY")
 groq_key = os.getenv("GROQ_API_KEY")
-
+groq_key = st.secrets["GROQ_API_KEY"]
+api_key =st.secrets("TAVILY_API_KEY")
 
 
 
